@@ -15,7 +15,7 @@ import (
 
 func main() {
 
-	cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	cert, err := tls.LoadX509KeyPair("localhost.pem", "localhost-key.pem")
 	if err != nil {
 		log.Fatal("load key pair error:", err)
 	}
@@ -49,27 +49,14 @@ func main() {
 
 		framer := http2.NewFramer(conn, conn)
 
-		frames, err := readFrames(framer)
+		streamID, err := readFrames(framer)
 		if err != nil {
 			log.Fatal("read frames error:", err)
 		}
-		var streamID uint32
-		var data []byte
-		for _, frame := range frames {
-			if headersframe, ok := frame.(*http2.HeadersFrame); ok {
-				streamID = headersframe.StreamID
-			}
-			if headersframe, ok := frame.(*http2.DataFrame); ok {
-				data = headersframe.Data()
-			}
-		}
-		fmt.Printf("StreamID: %v, Message: %s\n", streamID, string(data))
 
 		framer.WriteRawFrame(http2.FrameSettings, 0, 0, []byte{})
 
-		readFrames(framer)
-
-		pic, err := ioutil.ReadFile("image.png")
+		pic, err := ioutil.ReadFile("image.jpeg")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -79,7 +66,7 @@ func main() {
 		henc.WriteField(hpack.HeaderField{Name: "content-length", Value: strconv.Itoa(len(pic))})
 		henc.WriteField(hpack.HeaderField{Name: "content-type", Value: "image/png"})
 
-		fmt.Printf("Encoded Header: %d Byte\n", len(hbuf.Bytes()))
+		fmt.Printf("Encoded Response Header: %d Byte\n", len(hbuf.Bytes()))
 
 		err = framer.WriteHeaders(http2.HeadersFrameParam{StreamID: streamID, BlockFragment: hbuf.Bytes(), EndHeaders: true})
 		if err != nil {
@@ -93,16 +80,38 @@ func main() {
 	}
 }
 
-func readFrames(framer *http2.Framer) ([]http2.Frame, error) {
-	frames := make([]http2.Frame, 0)
+func readFrames(framer *http2.Framer) (uint32, error) {
+	hdec := hpack.NewDecoder(4096, nil)
+
+	var streamID uint32
+	var data []byte
+
 	for {
 		frame, err := framer.ReadFrame()
 		if err != nil {
-			return frames, err
+			return 0, err
 		}
-		frames = append(frames, frame)
+
+		switch frame := frame.(type) {
+		case *http2.HeadersFrame:
+			fields, err := hdec.DecodeFull(frame.HeaderBlockFragment())
+			if err != nil {
+				log.Println(err)
+			}
+
+			for _, field := range fields {
+				log.Println(field)
+			}
+
+			streamID = frame.StreamID
+		case *http2.DataFrame:
+			data = frame.Data()
+		}
+
 		if frame.Header().Flags.Has(http2.FlagDataEndStream) {
-			return frames, nil
+			fmt.Printf("StreamID: %v, Message: %s\n", streamID, string(data))
+
+			return streamID, nil
 		}
 	}
 }
