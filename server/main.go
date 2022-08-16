@@ -56,7 +56,7 @@ func main() {
 
 		framer.WriteRawFrame(http2.FrameSettings, 0, 0, []byte{})
 
-		pic, err := ioutil.ReadFile("image.jpeg")
+		pic, err := ioutil.ReadFile("image.png")
 		if err != nil {
 			log.Fatal(err)
 		}
